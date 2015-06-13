@@ -8,7 +8,6 @@ class StylesHandler(tornado.web.RequestHandler):
         template = tornado.template.Template('''
             .table_header{
                 text-decoration: underline;
-                text-transform: capitalize;
                 font-style: italic;
                 font-size:25px;
                 color: Highlight;
@@ -26,17 +25,11 @@ class StylesHandler(tornado.web.RequestHandler):
             tr{
                 border: 4px solid Black;
             }
-            .ticket{
-                font-family: fantasy;
-                font-size: 28px;
-                font-style: oblique;
-                word-spacing: 2px;
-                padding: 4px;
-                color:#5088ed;
-            }
             .hall{
                 height: 25px;
                 width: 25px;
+                font-style: italic;
+                color: Highlight;
             }
             a {text-decoration: none; font-size:25px;}
             a:hover { text-decoration: underline;}
@@ -76,36 +69,64 @@ class AuthoriseHandler(tornado.web.RequestHandler):
         action = self.get_argument("action")
         connection = sqlite3.connect('../data/cinema.db')
         db_cursor = connection.cursor()
+        query = 'select login, password from users'
+        db_cursor.execute(query)
+        user_base = db_cursor.fetchall()
         if action == "Вход":
-            query = "SELECT login, password FROM users"
-            db_cursor.execute(query)
-            user_base = db_cursor.fetchall()
-            if (login, password) in user_base:
+            if login == 'admin' and password == 'admin':
+                self.set_cookie("admin", '1')
+                self.redirect('../menu')
+            elif (login, password) in user_base:
                 self.set_cookie("user", login)
                 self.redirect('../menu')
             else:
                 self.redirect('../login_error')
         else:
-            query = ("INSERT INTO USERS (login, password) VALUES('"+login+"', '"+password+"')")
+            dict_user_base = dict(user_base)
+            if login == 'admin' or login in dict_user_base.keys():
+                self.redirect('../registration_error')
+            query = ("insert into users (login, password) values('"+login+"', '"+password+"')")
             db_cursor.execute(query)
             self.set_cookie("user", login)
             db_cursor = connection.cursor()
-            query = ("INSERT INTO TICKETS (login, purchase_num) VALUES('"+login+"', 0)")
+            query = ("insert into tickets (login, purchase_num) values('"+login+"', 0)")
             db_cursor.execute(query)
             connection.commit()
             self.redirect('../menu')
+
+        connection.close()
 
 class AuthoriseErrorHandler(tornado.web.RequestHandler):
     def get(self):
         template = tornado.template.Template('''
             <html>
                 <head>
-                    <title> Error </title>
+                    <title> Ошибка </title>
                     <link rel="stylesheet" href="../style.css">
                 </head>
                 <body>
                     <center>
                         Неверный логин или пароль
+                        <form action="../" method="get">
+                            <br> <input type="submit" value="Вернуться на главную">
+                        </form>
+                    </center>
+                </body>
+            </html>
+        ''')
+        self.write(template.generate())
+
+class RegistrationErrorHandler(tornado.web.RequestHandler):
+    def get(self):
+        template = tornado.template.Template('''
+            <html>
+                <head>
+                    <title> Ошибка </title>
+                    <link rel="stylesheet" href="../style.css">
+                </head>
+                <body>
+                    <center>
+                        Пользователь с таким именем уже существует
                         <form action="../" method="get">
                             <br> <input type="submit" value="Вернуться на главную">
                         </form>
@@ -128,7 +149,6 @@ class MenuHandler(tornado.web.RequestHandler):
                         <br><a href="../films"> Фильмы </a><br>
                         <br><a href="../sessions"> Сеансы </a><br>
                         <br><a href="../halls"> Залы </a><br>
-                        <!-- <br><a href="../tickets"> Купить билет </a><br> -->
                     </center>
                 </body>
             </html>
@@ -139,7 +159,7 @@ class FilmsHandler(tornado.web.RequestHandler):
     def get(self):
         connection = sqlite3.connect('../data/cinema.db')
         db_cursor = connection.cursor()
-        query = "select * from films"
+        query = 'select * from films'
         db_cursor.execute(query)
         query_res = db_cursor.fetchall()
         template = tornado.template.Template('''
@@ -180,42 +200,81 @@ class FilmsHandler(tornado.web.RequestHandler):
         ''')
         self.write(template.generate(data = query_res))
 
+        connection.close()
+
 class ChooseHandler(tornado.web.RequestHandler):
     def get(self):
         connection = sqlite3.connect('../data/cinema.db')
         db_cursor = connection.cursor()
-        halls = db_cursor.execute("select hall_id from halls").fetchall()
+        halls = db_cursor.execute('select hall_id from halls').fetchall()
 
         halls_list = ""
         for hall_id in halls:
             cur_id = hall_id[0]
-            halls_list += "<a href = '../hall?hall_id=%d'>Зал #%d</a><br>" % (cur_id, cur_id)
+            halls_list += "<a href = '../hall?id=%d'>Зал #%d</a><br>" % (cur_id, cur_id)
 
         template = tornado.template.Template('''
             <html>
                 <body>
+                    <a href="../menu"> Назад </a>
+                    <br><br>
                     %s
-                    <a href = '../sessions'>Sessions</a>
+                    <a href = '../sessions' class="hall">Sessions</a>
                 </body>
             </html>
         ''' % halls_list)
+
         self.write(template.generate())
+
+        connection.close()
 
 class HallHandler(tornado.web.RequestHandler):
     def draw_table(self, table, hall_id):
-        table_code = "<html><body><header>Hall %d </header>" % hall_id
-        table_code += '<table style="table-layout: fixed">'
-        for row in table:
-            table_code += '<tr>'
-            for elem in row:
-                table_code += '<td>' + str(elem) + '</td>'
-            table_code += '</tr>'
+        rows_num = len(table)
+        cols_num = len(table[0])
+        template = tornado.template.Template('''
+            <html>
+                <body>
+                <a href="../menu"> Назад </a>
+                <br><br>
+                <table border="2">
+                <caption>Зал № {{hall_id}} </caption>
+                 <tr>
+                    <td colspan="100" align="center">
+                        <label> Экран </label>
+                    </td>
+                    {%for i in range(rows_num)%}
+                        <tr>
+                        <th>
+                        <label> Ряд №{{i+1}} </label>
+                        {%for j in range(cols_num)%}
 
-        table_code += "</table></body></html>"
-        self.write(table_code)
+                            {%if table[i][j] == -1%}
+                                <td bgcolor="#fffff">
+                                </td>
+                            {%end%}
+                            {%if table[i][j] == 0%}
+                                <td bgcolor="#00ff00">
+                                    <label> {{j+1}} </label>
+                                </td>
+                            {%end%}
+                            {%if table[i][j] == 1%}
+                                <td bgcolor="#ffcc00">
+                                    <label> {{j+1}} </label>
+                                </td>
+                            {%end%}
+                        {%end%}
+                        </th>
+                        </tr>
+                    {%end%}
+                </table>
+                </body>
+            </html>
+        ''')
+        self.write(template.generate(table = table, rows_num = rows_num, cols_num = cols_num, hall_id = hall_id))
 
     def get(self):
-        hall_id = int(self.get_argument('hall_id'))
+        hall_id = int(self.get_argument('id'))
         connection = sqlite3.connect('../data/cinema.db')
         sql_cursor = connection.cursor()
 
@@ -223,12 +282,11 @@ class HallHandler(tornado.web.RequestHandler):
         cols_num = sql_cursor.execute('select chairs_num from halls where hall_id = ?', (hall_id,)).fetchone()[0]
 
         table = list([])
-
         for row in range(rows_num):
             hall_list = list([])
             for col in range(cols_num):
                 res = sql_cursor.execute('select state from seats where hall_id=%d and row_id=%d + 1 and chair_id=%d + 1' % (hall_id, row, col)).fetchone()
-                hall_list.append(res)
+                hall_list.append(res[0])
             table.append(hall_list)
 
         self.draw_table(table, hall_id)
@@ -236,52 +294,49 @@ class HallHandler(tornado.web.RequestHandler):
         connection.close()
 
 class SessionHandler(tornado.web.RequestHandler):
-    def draw_table(self, table):
-        table_code = "<html><body><header>Сегодняшние сеансы</header>"
-        table_code += '<table style="table-layout: fixed">'
-        for row in table:
-            table_code += '<tr>'
-            for elem in row:
-                table_code += '<td>' + str(elem) + '</td>'
-            table_code += '</tr>'
-
-        table_code += "</table>"
-        table_code += "</body></html>"
-        self.write(table_code)
+    def draw_table(self, table, halls, times):
+        template = tornado.template.Template('''
+            <html>
+                <body>
+                    <a href="../menu"> Назад </a>
+                    <br><br>
+                    <table border = "2">
+                        <tr>
+                            <td>
+                            </td>
+                            {%for time in times%}
+                                <td> {{time[0]}} </td>
+                            {%end%}
+                        </tr>
+                       {%for hall in halls %}
+                        <tr>
+                            <td> Зал №{{hall[0]}} </td>
+                            {%for time in times %}
+                                <td >
+                                    <a href = ../hall?id={{hall[0]}}> {{table[hall[0]].get(time[0], " ")}}</a>
+                                </td>
+                            {%end %}
+                        </tr>
+                        {%end %}
+                    </table>
+                </body>
+            </html>
+        ''')
+        self.write(template.generate(table = table, halls = halls,times = times))
 
     def get(self):
         connection = sqlite3.connect('../data/cinema.db')
         db_cursor = connection.cursor()
 
-        first_line = ['# зала']
-        times = db_cursor.execute('select distinct time from sessions order by time').fetchall()
-        for time in times:
-            first_line.append(str(time[0]))
-
-        table = list([first_line])
-
         halls = db_cursor.execute('select distinct hall_id from sessions order by hall_id').fetchall()
+        times = db_cursor.execute('select distinct time from sessions order by time').fetchall()
 
-        for hall in halls:
-            sessions = db_cursor.execute('select film, time from sessions where hall_id = %d order by time' % hall[0]).fetchall()
+        session_summary = db_cursor.execute('select time, film, hall_id from sessions').fetchall()
+        table = {}
+        for time, film, hall_id in session_summary:
+            table.setdefault(hall_id,{})[time] = film
 
-            hall_list = list([])
-
-            len_line = len(first_line)
-            for session in sessions:
-                time, film = session[1], session[0]
-                place = 1
-                while place < len_line:
-                    if first_line[place] == time:
-                        hall_list.append(film)
-                        place += 1
-                    else:
-                        place += 1
-                        hall_list.append("* NONE *")
-
-            table.append(["Зал %d" % hall[0]] + hall_list)
-
-        self.draw_table(table)
+        self.draw_table(table, halls, times)
 
         connection.close()
 
@@ -291,6 +346,7 @@ if __name__ == "__main__":
         (r"/", CinemaHandler),
         (r"/login", AuthoriseHandler),
         (r"/login_error", AuthoriseErrorHandler),
+        (r".registration_error", RegistrationErrorHandler),
         (r"/menu", MenuHandler),
         (r"/films", FilmsHandler),
         (r"/halls", ChooseHandler),
